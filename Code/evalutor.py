@@ -241,7 +241,6 @@ def run_rag_evaluation(
                 'evidence_used': "N/A"
             })
 
-        time.sleep(30)
 
     return pd.DataFrame(evaluation_results)
 
