@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.formatting.rule import ColorScaleRule
 
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+api_key = "set_your_api_key"
 def chunk_pdf_by_words(pdf_path: str, chunk_size: int = 250, overlap: int = 50) -> pd.DataFrame:
     """
     Chunks a PDF into overlapping word-based segments with page tracking.
@@ -155,7 +156,7 @@ def evaluate_chunk(eval_chunk_text: str, index, source_df: pd.DataFrame) -> dict
         retrieved_context = "\n".join(retrieved_context_list)
 
         # 2. Use Google's new SDK for generation
-        client = genai.Client(api_key="AIzaSyDoFuQVd5hyT2CD3fYkMhW41iSRY179GgM")  # reads GEMINI_API_KEY
+        client = genai.Client(api_key=api_key)  # reads GEMINI_API_KEY
 
         response = client.models.generate_content(
             model="gemini-2.5-flash-lite",
@@ -414,7 +415,7 @@ def evaluate_custom_report(pdf_path: str, index_name: str, output_name: str):
     print("Available RAG indexes:", available)
 
     # --- Get inputs ---
-    
+
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
