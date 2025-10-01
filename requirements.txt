@@ -1,0 +1,7 @@
+openpyxl
+pandas
+pypdf
+google-genai
+sentence-transformers
+faiss-cpu
+numpy
