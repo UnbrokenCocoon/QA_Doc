@@ -11,9 +11,7 @@ from google import genai
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Font
-from openpyxl.formatting.rule import ColorScaleRule
+
 
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 api_key = "set_your_api_key"
