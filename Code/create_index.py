@@ -9,14 +9,16 @@ from sentence_transformers import SentenceTransformer
 import faiss 
 
 # --- Configuration (Constants) ---
-# NOTE: INPUT_DIR, EMBEDDINGS_DIR, and FAISS_DIR are defined inside the main function
-# based on user input for better GitHub usability.
+# NOTE: Changed back to the original request: 'all-mpnet-base-v2'.
 CHUNK_SIZE_WORDS = 45
 EMBEDDING_MODEL_NAME = 'all-mpnet-base-v2' 
 
 def chunk_text(text, chunk_size, document_id, start_page=1):
     """
     Splits the input text into chunks of specified word size.
+    
+    IMPORTANT: Column names are standardized here to match the evaluation script:
+    'chunk_id', 'page_num', and 'chunk_txt'.
     """
     words = [word for word in re.split(r'\s+', text) if word]
     chunks_data = []
@@ -25,12 +27,14 @@ def chunk_text(text, chunk_size, document_id, start_page=1):
         chunk_words = words[i:i + chunk_size]
         chunk_content = " ".join(chunk_words)
         
+        # Standardizing column names for consistency with the downstream evaluation script
+        chunk_index = int(i / chunk_size)
+        
         chunks_data.append({
-            'document_id': document_id,
-            'chunk_index': int(i / chunk_size), 
-            'source_page_number': start_page,
+            'chunk_id': f"{Path(document_id).stem}_{chunk_index}", # Unique ID combining document name and index
+            'page_num': start_page,                              # Matches evaluation script
             'word_count': len(chunk_words),
-            'text_content': chunk_content
+            'chunk_txt': chunk_content                           # Matches evaluation script
         })
     
     return chunks_data
@@ -69,7 +73,7 @@ def extract_from_docx(file_path):
     return all_chunks
 
 def generate_embeddings(df, npy_output_path, model):
-    """Generates embeddings for 'text_content', saves them as .npy, or loads existing file."""
+    """Generates embeddings for 'chunk_txt', saves them as .npy, or loads existing file."""
     if npy_output_path.exists():
         print(f"   --> Found existing embedding file: {npy_output_path.name}. Loading...")
         try:
@@ -78,10 +82,11 @@ def generate_embeddings(df, npy_output_path, model):
             print(f"   --> ⚠️ Could not load existing NPY file: {e}. Attempting regeneration.")
 
     try:
-        texts = df['text_content'].tolist()
+        # Use 'chunk_txt' column which is now standardized
+        texts = df['chunk_txt'].tolist() 
         
         print(f"   --> Generating {len(texts)} embeddings...")
-        embeddings = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+        embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
         
         # Save the embeddings
         np.save(npy_output_path, embeddings)
@@ -135,13 +140,15 @@ def main():
         print(f"Error: Input directory not found at {INPUT_DIR}. Please check the path and try again.")
         return
         
-    # Define and create output directories
-    EMBEDDINGS_DIR = INPUT_DIR / "embeddings" 
-    FAISS_DIR = INPUT_DIR / "RAG_FAISS_Indices" # New dedicated folder for FAISS indices
+    # --- Define and create output directories to match the RAG evaluation script ---
+    TEXT_DIR = INPUT_DIR / "RAG_Data_Text"           # New folder for Parquet files
+    EMBEDDINGS_DIR = INPUT_DIR / "RAG_Data_Embeddings" # Renamed folder for Numpy files
+    FAISS_DIR = INPUT_DIR / "RAG_FAISS_Indices"      # Existing folder for FAISS files
 
     # Create the output directories if they don't exist
+    TEXT_DIR.mkdir(exist_ok=True)
     EMBEDDINGS_DIR.mkdir(exist_ok=True)
-    FAISS_DIR.mkdir(exist_ok=True) # Creating the new FAISS directory
+    FAISS_DIR.mkdir(exist_ok=True) 
     
     # Pre-load the Sentence Transformer model once (efficiency gain)
     try:
@@ -167,13 +174,12 @@ def main():
             
         # Define all output paths
         parquet_output_name = file_path.stem + ".parquet"
-        parquet_output_path = INPUT_DIR / parquet_output_name
+        parquet_output_path = TEXT_DIR / parquet_output_name # Parquet now goes into TEXT_DIR
         
         npy_output_name = file_path.stem + ".npy"
         npy_output_path = EMBEDDINGS_DIR / npy_output_name
         
         faiss_output_name = file_path.stem + ".faiss"
-        # Using the new FAISS_DIR for FAISS output path
         faiss_output_path = FAISS_DIR / faiss_output_name 
         
         
@@ -194,11 +200,10 @@ def main():
                 total_chunks_written += len(df)
             except Exception as e:
                 print(f"   --> ❌ Error loading Parquet file. Continuing with regeneration attempt. {e}")
-                # Set df=None to trigger regeneration if the file type matches
                 if is_target_file:
                     df = None
                 else:
-                    continue # Skip if file is not original source and load failed
+                    continue
 
         # If Parquet doesn't exist or failed to load, extract text and create it
         if df is None:
@@ -206,7 +211,7 @@ def main():
                 chunks = extract_from_pdf(file_path)
             elif file_path.suffix.lower() == '.docx':
                 chunks = extract_from_docx(file_path)
-            else: # Should be caught by is_target_file check, but for safety
+            else: 
                 continue
 
             if chunks:
@@ -218,7 +223,7 @@ def main():
                     total_chunks_written += len(df)
                 except Exception as e:
                     print(f"   --> ❌ Error writing Parquet file for {file_path.name}: {e}")
-                    df = None # Prevent proceeding to embedding step if writing failed
+                    df = None
         
         if df is not None:
             # --- 2. Embeddings Checkpoint (Load or Generate) ---
@@ -228,7 +233,6 @@ def main():
                 total_embeddings_written += len(embeddings)
                 
                 # --- 3. FAISS Checkpoint (Skip or Create) ---
-                # faiss_output_path now correctly points to the new FAISS_DIR
                 faiss_count = create_faiss_index(embeddings, faiss_output_path)
                 total_faiss_indexed += faiss_count
     
@@ -239,8 +243,8 @@ def main():
         print(f"Total chunks written/loaded: {total_chunks_written}")
         print(f"Total embeddings written/loaded: {total_embeddings_written}")
         print(f"Total FAISS vectors indexed/loaded: {total_faiss_indexed}")
+        print(f"Output text (.parquet) files are in the '{{TEXT_DIR.name}}' subdirectory.")
         print(f"Output embedding (.npy) files are in the '{{EMBEDDINGS_DIR.name}}' subdirectory.")
-        # Updated final message to reflect the new directory structure
         print(f"Output FAISS index (.faiss) files are in the '{{FAISS_DIR.name}}' subdirectory.")
     else:
         print("No supported files found or processed successfully.")
